@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Vessel Search</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    :root { --bg:#f6f7f9; --card:#fff; --text:#17202a; --muted:#687385; --line:#d8dee8; --primary:#0f6cbd; --primary-dark:#0b5cab; --success:#107c10; --danger:#c50f1f; --radius:14px; --shadow:0 10px 24px rgba(15,23,42,.08); }
+    * { box-sizing:border-box; } body { margin:0; font-family:Arial, Helvetica, sans-serif; background:var(--bg); color:var(--text); }
+    header { background:#0b1f33; color:white; padding:18px 22px; position:sticky; top:0; z-index:10; box-shadow:0 3px 14px rgba(0,0,0,.18); }
+    header h1 { margin:0; font-size:22px; } header p { margin:5px 0 0; color:#cbd7e6; font-size:13px; } main { max-width:1280px; margin:0 auto; padding:18px; }
+    .card { background:var(--card); border:1px solid var(--line); border-radius:var(--radius); box-shadow:var(--shadow); padding:16px; margin-bottom:16px; }
+    .toolbar { display:grid; grid-template-columns:180px 1fr auto auto auto; gap:10px; align-items:end; } label { display:block; font-size:12px; font-weight:700; color:var(--muted); margin-bottom:6px; }
+    input, select, textarea { width:100%; border:1px solid var(--line); border-radius:10px; padding:10px 11px; font-size:14px; background:white; color:var(--text); } textarea { min-height:96px; resize:vertical; }
+    button { border:0; border-radius:10px; padding:10px 14px; font-size:14px; font-weight:700; cursor:pointer; background:var(--primary); color:white; white-space:nowrap; } button:hover { background:var(--primary-dark); }
+    button.secondary { background:#eef3f8; color:#123; border:1px solid var(--line); } button.secondary:hover { background:#e2ebf5; } button.success { background:var(--success); }
+    .status { color:var(--muted); font-size:13px; margin-top:10px; } .pill { display:inline-block; padding:3px 8px; border-radius:999px; background:#eef3f8; color:#334155; font-size:12px; }
+    .table-wrap { overflow-x:auto; border:1px solid var(--line); border-radius:12px; } table { width:100%; border-collapse:collapse; min-width:1100px; } th, td { padding:10px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top; font-size:13px; } th { background:#f0f4f8; color:#334155; position:sticky; top:0; } tr:hover td { background:#fbfdff; }
+    .grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; } .empty { padding:28px; text-align:center; color:var(--muted); }
+    dialog { width:min(980px, calc(100vw - 24px)); border:0; border-radius:16px; box-shadow:0 22px 60px rgba(0,0,0,.32); padding:0; } dialog::backdrop { background:rgba(8,15,28,.55); }
+    .modal-head { padding:16px 18px; background:#0b1f33; color:white; border-radius:16px 16px 0 0; display:flex; justify-content:space-between; gap:12px; align-items:center; } .modal-head h2 { margin:0; font-size:18px; }
+    .modal-body { padding:16px 18px; max-height:74vh; overflow:auto; } .modal-actions { display:flex; justify-content:flex-end; gap:10px; padding-top:14px; border-top:1px solid var(--line); margin-top:14px; }
+    .note-item { border:1px solid var(--line); border-radius:12px; padding:10px; margin:8px 0; background:#fbfdff; } .note-time { color:var(--muted); font-size:12px; font-weight:700; margin-bottom:4px; }
+    @media (max-width:760px) { main { padding:12px; } .toolbar, .grid { grid-template-columns:1fr; } button { width:100%; } .modal-actions { flex-direction:column-reverse; } th,td { font-size:12px; padding:8px; } }
+
+    /* Access code gate - MVP client-side gate */
+    body.access-locked header,
+    body.access-locked main,
+    body.access-locked #recordDialog {
+      display: none !important;
+    }
+    #accessGate {
+      position: fixed;
+      inset: 0;
+      z-index: 9999;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 18px;
+      background: linear-gradient(135deg, #0b1f33, #123b5d);
+    }
+    body.access-locked #accessGate {
+      display: flex;
+    }
+    .access-card {
+      width: min(420px, 100%);
+      background: #fff;
+      border-radius: 18px;
+      box-shadow: 0 24px 70px rgba(0,0,0,.35);
+      padding: 22px;
+      border: 1px solid rgba(255,255,255,.2);
+    }
+    .access-card h2 {
+      margin: 0 0 8px;
+      font-size: 22px;
+      color: var(--text);
+    }
+    .access-card p {
+      margin: 0 0 16px;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.4;
+    }
+    .access-actions {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+    .access-error {
+      min-height: 18px;
+      color: var(--danger);
+      font-size: 13px;
+      font-weight: 700;
+      margin-top: 10px;
+    }
+    @media (max-width:760px) {
+      .access-actions { flex-direction: column; }
+      .access-actions button { width: 100%; }
+    }
+
+  </style>
+</head>
+<body class="access-locked">
+
+<div id="accessGate" role="dialog" aria-modal="true" aria-labelledby="accessTitle">
+  <div class="access-card">
+    <h2 id="accessTitle">Access Code Required</h2>
+    <p>Please enter the access code to open Vessel Search.</p>
+    <form id="accessForm">
+      <label for="accessCodeInput">Access code</label>
+      <div class="access-actions">
+        <input id="accessCodeInput" type="password" autocomplete="off" placeholder="Enter access code" />
+        <button type="submit">Unlock</button>
+      </div>
+      <div id="accessError" class="access-error"></div>
+    </form>
+  </div>
+</div>
+
+<header><h1>Vessel Search</h1><p></p></header>
+<main>
+  <section class="card"><div class="toolbar">
+    <div><label for="searchField">Search by</label><select id="searchField"><option value="boat_vessel_name">Vessel name</option><option value="mooring_code">Mooring code</option><option value="customer_name">Customer name</option></select></div>
+    <div><label for="searchText">Search text</label><input id="searchText" placeholder="Type partial text, e.g. JEANNIE, TE130, Aaron" autocomplete="off" /></div>
+    <button id="searchBtn">Search</button><button id="insertBtn" class="success">Insert New</button><button id="photoSearchBtn" class="secondary" type="button">Photo Search</button>
+  </div><div class="status" id="statusText">Ready. Enter at least 2 characters for best results.</div></section>
+  <section class="card"><div style="display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:10px;flex-wrap:wrap;"><strong>Results</strong><span class="pill" id="resultCount">0 records</span></div><div class="table-wrap" id="tableWrap"><div class="empty">No search performed yet.</div></div></section>
+</main>
+<dialog id="recordDialog"><form method="dialog" id="recordForm"><div class="modal-head"><h2 id="modalTitle">Edit Vessel</h2><button type="button" class="secondary" onclick="closeDialog()">Close</button></div><div class="modal-body">
+  <input type="hidden" id="recordId" />
+  <div class="grid"><div><label>Vessel name</label><input id="boat_vessel_name" /></div><div><label>Mooring code</label><input id="mooring_code" /></div><div><label>Permit date of issue</label><input id="mooring_permit_date_of_issue" placeholder="YYYY-MM-DD or original text" /></div><div><label>Customer name</label><input id="customer_name" /></div></div>
+  <div class="grid" style="margin-top:12px;"><div><label>Mobile</label><input id="customer_phonemob" /></div><div><label>Email</label><input id="customer_email" /></div><div><label>Phone A/H</label><input id="customer_phoneah" /></div><div><label>Phone Work</label><input id="customer_phonewk" /></div></div>
+  <hr style="border:0;border-top:1px solid var(--line);margin:18px 0;" /><h3 style="margin:0 0 8px;">Notes</h3><p class="status" style="margin-top:0;">Each new note is saved with timestamp and displayed newest first.</p>
+  <div class="grid"><div><label for="newNote">Add note</label><textarea id="newNote" placeholder="Type new note here..."></textarea><button type="button" id="addNoteBtn" class="secondary" style="margin-top:8px;">Add Note</button></div><div><label>Note history</label><div id="notesList"><div class="empty">No notes.</div></div></div></div>
+  <div class="modal-actions"><button type="button" class="secondary" onclick="closeDialog()">Cancel</button><button type="button" id="saveBtn">Save Record</button></div>
+</div></form></dialog>
+<script>
+
+  // Simple MVP access-code gate. Note: client-side access codes are not a security boundary.
+  const ACCESS_CODE = 'akhmmr';
+  const ACCESS_SESSION_KEY = 'vesselSearchAccessGranted';
+
+  function unlockAccessGate() {
+    document.body.classList.remove('access-locked');
+    sessionStorage.setItem(ACCESS_SESSION_KEY, 'true');
+  }
+
+  function initAccessGate() {
+    const accessForm = document.getElementById('accessForm');
+    const accessInput = document.getElementById('accessCodeInput');
+    const accessError = document.getElementById('accessError');
+
+    if (sessionStorage.getItem(ACCESS_SESSION_KEY) === 'true') {
+      unlockAccessGate();
+      return;
+    }
+
+    setTimeout(() => accessInput?.focus(), 50);
+
+    accessForm?.addEventListener('submit', (event) => {
+      event.preventDefault();
+      const enteredCode = (accessInput.value || '').trim();
+      if (enteredCode === ACCESS_CODE) {
+        accessError.textContent = '';
+        unlockAccessGate();
+      } else {
+        accessError.textContent = 'Incorrect access code. Please try again.';
+        accessInput.value = '';
+        accessInput.focus();
+      }
+    });
+  }
+
+  initAccessGate();
+
+  const SUPABASE_URL = 'https://hjrcnsuzrztaiwnttxnr.supabase.co';
+  const SUPABASE_ANON_KEY = 'sb_publishable_8vscwHQ7y50eUj-RywvmLQ_JGpSp2HE';
+  const PHOTO_SEARCH_URL = 'https://aucklandtransport.sharepoint.com/sites/ahmfs/PublishingImages/Forms/AllItems.aspx?id=%2Fsites%2Fahmfs%2FPublishingImages%2FBoat%20image&viewid=64a01bc5%2De980%2D457b%2D8a07%2De269d1c17c4e';
+  const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  const fieldIds = ['boat_vessel_name','mooring_code','mooring_permit_date_of_issue','customer_name','customer_phonemob','customer_email','customer_phoneah','customer_phonewk'];
+  const displayColumns = [['boat_vessel_name','Vessel name'],['mooring_code','Mooring code'],['mooring_permit_date_of_issue','Permit date'],['customer_name','Customer name'],['customer_phonemob','Mobile'],['customer_email','Email'],['customer_phoneah','Phone A/H'],['customer_phonewk','Phone Work']];
+  let currentRows = [], activeRecord = null;
+  const $ = id => document.getElementById(id);
+  const esc = v => String(v ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
+  function setStatus(message, isError=false) { $('statusText').textContent = message; $('statusText').style.color = isError ? 'var(--danger)' : 'var(--muted)'; }
+  async function searchRecords() { const field=$('searchField').value, text=$('searchText').value.trim(); if(!text){renderTable([]);setStatus('Please enter search text.',true);return;} setStatus('Searching...'); const {data,error}=await supabaseClient.from('vessel_search_records').select('*').ilike(field, `%${text}%`).order('boat_vessel_name', {ascending:true}).limit(300); if(error){console.error(error);setStatus(error.message,true);return;} currentRows=data||[]; renderTable(currentRows); setStatus(`Search complete. ${currentRows.length} record(s) found.`); }
+  function renderTable(rows) { $('resultCount').textContent=`${rows.length} record${rows.length===1?'':'s'}`; if(!rows.length){ $('tableWrap').innerHTML='<div class="empty">No matching records.</div>'; return; } const thead=`<thead><tr>${displayColumns.map(c=>`<th>${c[1]}</th>`).join('')}<th>Action</th></tr></thead>`; const tbody=rows.map((row,idx)=>`<tr>${displayColumns.map(([key])=>`<td>${esc(row[key])}</td>`).join('')}<td><button class="secondary" onclick="openEdit(${idx})">Edit / Notes</button></td></tr>`).join(''); $('tableWrap').innerHTML=`<table>${thead}<tbody>${tbody}</tbody></table>`; }
+  async function openEdit(index) { activeRecord=currentRows[index]; $('modalTitle').textContent='Edit Vessel'; $('recordId').value=activeRecord.id; fieldIds.forEach(id=>$(id).value=activeRecord[id]||''); $('newNote').value=''; await loadNotes(activeRecord.id); $('recordDialog').showModal(); }
+  function openInsert() { activeRecord=null; $('modalTitle').textContent='Insert New Vessel'; $('recordId').value=''; fieldIds.forEach(id=>$(id).value=''); $('newNote').value=''; renderNotes([]); $('recordDialog').showModal(); }
+  function closeDialog() { $('recordDialog').close(); }
+  function getFormPayload() { const payload={}; fieldIds.forEach(id=>payload[id]=$(id).value.trim()||null); payload.updated_at=new Date().toISOString(); return payload; }
+  async function saveRecord() { const id=$('recordId').value, payload=getFormPayload(); if(!payload.boat_vessel_name&&!payload.mooring_code&&!payload.customer_name){alert('Please enter at least Vessel name, Mooring code, or Customer name.');return;} let result=id?await supabaseClient.from('vessel_search_records').update(payload).eq('id',id).select().single():await supabaseClient.from('vessel_search_records').insert({...payload,created_at:new Date().toISOString()}).select().single(); if(result.error){console.error(result.error);alert(result.error.message);return;} activeRecord=result.data; $('recordId').value=activeRecord.id; if($('newNote').value.trim()) await addNote(true); closeDialog(); await searchRecords(); }
+  async function loadNotes(vesselId) { const {data,error}=await supabaseClient.from('vessel_search_notes').select('*').eq('vessel_id',vesselId).order('created_at',{ascending:false}); if(error){console.error(error); renderNotes([]); return;} renderNotes(data||[]); }
+  function renderNotes(notes) { if(!notes.length){ $('notesList').innerHTML='<div class="empty">No notes.</div>'; return; } $('notesList').innerHTML=notes.map(n=>`<div class="note-item"><div class="note-time">${esc(new Date(n.created_at).toLocaleString())}</div><div>${esc(n.note).replace(/\n/g,'<br>')}</div></div>`).join(''); }
+  async function addNote(silent=false) { const vesselId=$('recordId').value, note=$('newNote').value.trim(); if(!vesselId){if(!silent)alert('Please save the new vessel first, then add notes.'); return;} if(!note){if(!silent)alert('Please type a note.'); return;} const {error}=await supabaseClient.from('vessel_search_notes').insert({vessel_id:vesselId,note}); if(error){console.error(error);alert(error.message);return;} $('newNote').value=''; await loadNotes(vesselId); }
+  $('searchBtn').addEventListener('click', searchRecords); $('insertBtn').addEventListener('click', openInsert); $('photoSearchBtn').addEventListener('click', () => window.open(PHOTO_SEARCH_URL, '_blank', 'noopener,noreferrer')); $('saveBtn').addEventListener('click', saveRecord); $('addNoteBtn').addEventListener('click', () => addNote(false)); $('searchText').addEventListener('keydown', e => { if(e.key==='Enter') searchRecords(); });
+</script>
+</body>
+</html>
