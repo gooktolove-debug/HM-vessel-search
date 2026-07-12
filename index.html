@@ -11,7 +11,7 @@
     header { background:#0b1f33; color:white; padding:18px 22px; position:sticky; top:0; z-index:10; box-shadow:0 3px 14px rgba(0,0,0,.18); }
     header h1 { margin:0; font-size:22px; } header p { margin:5px 0 0; color:#cbd7e6; font-size:13px; } main { max-width:1280px; margin:0 auto; padding:18px; }
     .card { background:var(--card); border:1px solid var(--line); border-radius:var(--radius); box-shadow:var(--shadow); padding:16px; margin-bottom:16px; }
-    .toolbar { display:grid; grid-template-columns:180px 1fr auto auto auto; gap:10px; align-items:end; } label { display:block; font-size:12px; font-weight:700; color:var(--muted); margin-bottom:6px; }
+    .toolbar { display:grid; grid-template-columns:1fr auto auto auto; gap:10px; align-items:end; } label { display:block; font-size:12px; font-weight:700; color:var(--muted); margin-bottom:6px; }
     input, select, textarea { width:100%; border:1px solid var(--line); border-radius:10px; padding:10px 11px; font-size:14px; background:white; color:var(--text); } textarea { min-height:96px; resize:vertical; }
     button { border:0; border-radius:10px; padding:10px 14px; font-size:14px; font-weight:700; cursor:pointer; background:var(--primary); color:white; white-space:nowrap; } button:hover { background:var(--primary-dark); }
     button.secondary { background:#eef3f8; color:#123; border:1px solid var(--line); } button.secondary:hover { background:#e2ebf5; } button.success { background:var(--success); }
@@ -101,10 +101,9 @@
 <header><h1>Vessel Search</h1><p></p></header>
 <main>
   <section class="card"><div class="toolbar">
-    <div><label for="searchField">Search by</label><select id="searchField"><option value="boat_vessel_name">Vessel name</option><option value="mooring_code">Mooring code</option><option value="customer_name">Customer name</option></select></div>
-    <div><label for="searchText">Search text</label><input id="searchText" placeholder="Type partial text, e.g. JEANNIE, TE130, Aaron" autocomplete="off" /></div>
+    <div><label for="searchText">Search vessel, mooring, or customer</label><input id="searchText" placeholder="Type vessel name, mooring code, or customer name" autocomplete="off" /></div>
     <button id="searchBtn">Search</button><button id="insertBtn" class="success">Insert New</button><button id="photoSearchBtn" class="secondary" type="button">Photo Search</button>
-  </div><div class="status" id="statusText">Ready. Enter at least 2 characters for best results.</div></section>
+  </div><div class="status" id="statusText">Ready. Search by vessel name, mooring code, or customer name.</div></section>
   <section class="card"><div style="display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:10px;flex-wrap:wrap;"><strong>Results</strong><span class="pill" id="resultCount">0 records</span></div><div class="table-wrap" id="tableWrap"><div class="empty">No search performed yet.</div></div></section>
 </main>
 <dialog id="recordDialog"><form method="dialog" id="recordForm"><div class="modal-head"><h2 id="modalTitle">Edit Vessel</h2><button type="button" class="secondary" onclick="closeDialog()">Close</button></div><div class="modal-body">
@@ -164,7 +163,7 @@
   const $ = id => document.getElementById(id);
   const esc = v => String(v ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
   function setStatus(message, isError=false) { $('statusText').textContent = message; $('statusText').style.color = isError ? 'var(--danger)' : 'var(--muted)'; }
-  async function searchRecords() { const field=$('searchField').value, text=$('searchText').value.trim(); if(!text){renderTable([]);setStatus('Please enter search text.',true);return;} setStatus('Searching...'); const {data,error}=await supabaseClient.from('vessel_search_records').select('*').ilike(field, `%${text}%`).order('boat_vessel_name', {ascending:true}).limit(300); if(error){console.error(error);setStatus(error.message,true);return;} currentRows=data||[]; renderTable(currentRows); setStatus(`Search complete. ${currentRows.length} record(s) found.`); }
+  async function searchRecords() { const text=$('searchText').value.trim(); if(!text){renderTable([]);setStatus('Please enter a vessel name, mooring code, or customer name.',true);return;} setStatus('Searching...'); const safeText=text.replace(/[,%()]/g,' ').trim(); const searchFilter=`boat_vessel_name.ilike.%${safeText}%,mooring_code.ilike.%${safeText}%,customer_name.ilike.%${safeText}%`; const {data,error}=await supabaseClient.from('vessel_search_records').select('*').or(searchFilter).order('boat_vessel_name', {ascending:true}).limit(300); if(error){console.error(error);setStatus(error.message,true);return;} currentRows=data||[]; renderTable(currentRows); setStatus(`Search complete. ${currentRows.length} record(s) found across vessel name, mooring code, and customer name.`); }
   function renderTable(rows) { $('resultCount').textContent=`${rows.length} record${rows.length===1?'':'s'}`; if(!rows.length){ $('tableWrap').innerHTML='<div class="empty">No matching records.</div>'; return; } const thead=`<thead><tr>${displayColumns.map(c=>`<th>${c[1]}</th>`).join('')}<th>Action</th></tr></thead>`; const tbody=rows.map((row,idx)=>`<tr>${displayColumns.map(([key])=>`<td>${esc(row[key])}</td>`).join('')}<td><button class="secondary" onclick="openEdit(${idx})">Edit / Notes</button></td></tr>`).join(''); $('tableWrap').innerHTML=`<table>${thead}<tbody>${tbody}</tbody></table>`; }
   async function openEdit(index) { activeRecord=currentRows[index]; $('modalTitle').textContent='Edit Vessel'; $('recordId').value=activeRecord.id; fieldIds.forEach(id=>$(id).value=activeRecord[id]||''); $('newNote').value=''; await loadNotes(activeRecord.id); $('recordDialog').showModal(); }
   function openInsert() { activeRecord=null; $('modalTitle').textContent='Insert New Vessel'; $('recordId').value=''; fieldIds.forEach(id=>$(id).value=''); $('newNote').value=''; renderNotes([]); $('recordDialog').showModal(); }
