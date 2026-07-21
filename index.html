@@ -116,36 +116,141 @@
 </div></form></dialog>
 <script>
 
-  // Simple MVP access-code gate. Note: client-side access codes are not a security boundary.
-  const ACCESS_CODE = 'boat';
-  const ACCESS_SESSION_KEY = 'vesselSearchAccessGranted';
+  // Access-code verification through Supabase Edge Function.
+  // No actual access code is stored in this HTML file.
+  const ACCESS_FUNCTION_URL = 'https://hjrcnsuzrztaiwnttxnr.supabase.co/functions/v1/verify-access';
+  const ACCESS_APP_NAME = 'vessel_search';
+  const ACCESS_SESSION_KEY = 'vesselSearchAccessSession';
+  const ACCESS_SESSION_DURATION_MS = 8 * 60 * 60 * 1000; // 8 hours
+
+  function saveAccessSession() {
+    const session = {
+      granted: true,
+      expiresAt: Date.now() + ACCESS_SESSION_DURATION_MS
+    };
+    sessionStorage.setItem(ACCESS_SESSION_KEY, JSON.stringify(session));
+  }
+
+  function hasValidAccessSession() {
+    try {
+      const storedSession = sessionStorage.getItem(ACCESS_SESSION_KEY);
+      if (!storedSession) return false;
+
+      const session = JSON.parse(storedSession);
+      if (
+        session.granted !== true ||
+        typeof session.expiresAt !== 'number' ||
+        Date.now() >= session.expiresAt
+      ) {
+        sessionStorage.removeItem(ACCESS_SESSION_KEY);
+        return false;
+      }
+      return true;
+    } catch (error) {
+      sessionStorage.removeItem(ACCESS_SESSION_KEY);
+      return false;
+    }
+  }
 
   function unlockAccessGate() {
     document.body.classList.remove('access-locked');
-    sessionStorage.setItem(ACCESS_SESSION_KEY, 'true');
+    saveAccessSession();
+  }
+
+  async function verifyAccessCode(accessCode) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+    try {
+      const response = await fetch(ACCESS_FUNCTION_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          app: ACCESS_APP_NAME,
+          code: accessCode
+        }),
+        signal: controller.signal
+      });
+
+      let result;
+      try {
+        result = await response.json();
+      } catch (error) {
+        throw new Error('The server returned an invalid response.');
+      }
+
+      if (!response.ok || result.valid !== true) {
+        return {
+          valid: false,
+          message: result.message || 'Incorrect access code. Please try again.'
+        };
+      }
+
+      return { valid: true, message: 'Access granted.' };
+    } finally {
+      clearTimeout(timeoutId);
+    }
   }
 
   function initAccessGate() {
     const accessForm = document.getElementById('accessForm');
     const accessInput = document.getElementById('accessCodeInput');
     const accessError = document.getElementById('accessError');
+    const submitButton = accessForm?.querySelector('button[type="submit"]');
 
-    if (sessionStorage.getItem(ACCESS_SESSION_KEY) === 'true') {
-      unlockAccessGate();
+    if (hasValidAccessSession()) {
+      document.body.classList.remove('access-locked');
       return;
     }
 
+    sessionStorage.removeItem(ACCESS_SESSION_KEY);
     setTimeout(() => accessInput?.focus(), 50);
 
-    accessForm?.addEventListener('submit', (event) => {
+    accessForm?.addEventListener('submit', async (event) => {
       event.preventDefault();
       const enteredCode = (accessInput.value || '').trim();
-      if (enteredCode === ACCESS_CODE) {
-        accessError.textContent = '';
-        unlockAccessGate();
-      } else {
+
+      if (enteredCode.length < 8) {
+        accessError.style.color = 'var(--danger)';
+        accessError.textContent = 'Please enter a valid access code.';
+        accessInput.focus();
+        return;
+      }
+
+      accessError.textContent = 'Checking access code...';
+      accessError.style.color = 'var(--muted)';
+      accessInput.disabled = true;
+
+      if (submitButton) {
+        submitButton.disabled = true;
+        submitButton.textContent = 'Checking...';
+      }
+
+      try {
+        const result = await verifyAccessCode(enteredCode);
+        if (result.valid) {
+          accessError.textContent = '';
+          accessError.style.color = 'var(--danger)';
+          accessInput.value = '';
+          unlockAccessGate();
+          return;
+        }
+
+        accessError.style.color = 'var(--danger)';
         accessError.textContent = 'Incorrect access code. Please try again.';
         accessInput.value = '';
+      } catch (error) {
+        console.error('Access verification failed:', error);
+        accessError.style.color = 'var(--danger)';
+        accessError.textContent = error.name === 'AbortError'
+          ? 'The request timed out. Please try again.'
+          : 'Unable to verify access. Please try again.';
+      } finally {
+        accessInput.disabled = false;
+        if (submitButton) {
+          submitButton.disabled = false;
+          submitButton.textContent = 'Unlock';
+        }
         accessInput.focus();
       }
     });
